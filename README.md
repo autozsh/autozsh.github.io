@@ -1,0 +1,2 @@
+# autozsh.github.io
+autoapp
