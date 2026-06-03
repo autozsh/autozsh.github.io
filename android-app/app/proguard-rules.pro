@@ -1,0 +1,3 @@
+-keep class androidx.** { *; }
+-keep class kotlin.** { *; }
+-keep class com.erp.berkahperdana.** { *; }

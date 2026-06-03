@@ -8,112 +8,58 @@ on:
   workflow_dispatch:
 
 env:
-  GRADLE_VERSION: "8.5"
-  ANDROID_SDK_VERSION: "34"
+  JAVA_VERSION: '17'
+  ANDROID_SDK: '34'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     permissions:
       contents: write
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
           cache: gradle
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
         with:
-          api-level: ${{ env.ANDROID_SDK_VERSION }}
+          api-level: ${{ env.ANDROID_SDK }}
           build-tools-version: 34.0.0
 
-      - name: Create keystore
+      - name: Build APKs
         run: |
-          mkdir -p ~/.android
-          keytool -genkey -v -keystore ~/.android/release-key.jks \
-            -alias berkah-perdana-key \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -keypass android -storepass android \
-            -dname "CN=BerkahPerdana, OU=Development, O=BerkahPerdana, C=ID"
+          cd android-app
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease --stacktrace
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      - name: Build APK
+      - name: Prepare Release
         run: |
-          ./gradlew assembleDebug \
-            -Pandroid.injected.signing.store.file=$HOME/.android/release-key.jks \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=berkah-perdana-key \
-            -Pandroid.injected.signing.key.password=android
+          mkdir -p release
+          find android-app/app/build/outputs/apk -name "*.apk" -exec cp {} release/ \;
+          ls -lah release/
 
-      - name: Build Release APK
-        run: |
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$HOME/.android/release-key.jks \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=berkah-perdana-key \
-            -Pandroid.injected.signing.key.password=android
-
-      - name: Create Release Folder
-        run: |
-          mkdir -p ./release
-          cp app/build/outputs/apk/debug/app-debug.apk ./release/release-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk ./release/app-release.apk
-
-      - name: Generate build info
-        run: |
-          echo "Build Date: $(date)" > ./release/BUILD_INFO.txt
-          echo "Commit: ${{ github.sha }}" >> ./release/BUILD_INFO.txt
-          echo "Branch: ${{ github.ref }}" >> ./release/BUILD_INFO.txt
-
-      - name: Upload APK artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4.4.3
         with:
           name: APK-Builds
-          path: ./release/
+          path: release/
           retention-days: 30
 
-      - name: Create GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v1
+      - name: Create Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ./release/release-debug.apk
-            ./release/app-release.apk
-            ./release/BUILD_INFO.txt
-          tag_name: release-${{ github.run_number }}
-          body: |
-            # ERP Berkah Perdana Release
-            - **Build Number**: ${{ github.run_number }}
-            - **Commit**: ${{ github.sha }}
-            - **Date**: $(date)
-            
-            ## Download
-            - release-debug.apk (Debug Build)
-            - app-release.apk (Release Build)
+          files: release/*.apk
+          tag_name: build-${{ github.run_number }}
+          body: ERP Berkah Perdana Build ${{ github.run_number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Success Notification
-        if: success()
-        run: |
-          echo "✅ Build completed successfully!"
-          echo "APK Location: ./release/"
-          echo "Debug APK: release-debug.apk"
-          echo "Release APK: app-release.apk"
-
-      - name: Build Failure Notification
-        if: failure()
-        run: |
-          echo "❌ Build failed. Check logs above."
-          exit 1
